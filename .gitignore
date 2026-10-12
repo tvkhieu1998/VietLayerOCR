@@ -1,0 +1,30 @@
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+
+# Private input documents and generated results
+workspace/
+input/
+output/
+evidence/
+*.pdf
+*.txt
+!requirements*.txt
+
+# Downloaded model weights; keep YAML configuration in Git
+*.pth
+*.pt
+*.onnx
+*.gguf
+*.safetensors
+
+build/
+dist/
