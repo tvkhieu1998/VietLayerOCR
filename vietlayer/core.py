@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -15,7 +16,8 @@ from typing import Callable, Literal
 
 SUPPORTED_SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODEL_DIR = PROJECT_ROOT / "models" / "vietocr"
+BUNDLE_ROOT = Path(getattr(sys, "_MEIPASS", PROJECT_ROOT))
+DEFAULT_MODEL_DIR = BUNDLE_ROOT / "models" / "vietocr"
 
 
 @dataclass(frozen=True)
@@ -117,7 +119,8 @@ def process_document(
     missing_files = [name for name in required_files if not (model_dir / name).is_file()]
     if missing_files:
         raise FileNotFoundError(f"Thiếu mô hình VietOCR trong {model_dir}: {', '.join(missing_files)}")
-    for executable in ("ocrmypdf", "tesseract"):
+    required_executables = ("tesseract",) if getattr(sys, "frozen", False) else ("ocrmypdf", "tesseract")
+    for executable in required_executables:
         if not shutil.which(executable):
             raise FileNotFoundError(f"Chưa cài hoặc chưa đưa {executable} vào PATH.")
     if config.ai_provider and config.ai_provider.endswith("-cli"):
@@ -156,8 +159,9 @@ def process_document(
             correction_path = temporary_directory / "corrections.json"
             correction_path.write_text(json.dumps(config.corrections, ensure_ascii=False), encoding="utf-8")
             environment["VIETLAYER_CORRECTIONS_PATH"] = str(correction_path)
+        ocr_command = [sys.executable, "--ocr-worker"] if getattr(sys, "frozen", False) else ["ocrmypdf"]
         command = [
-            "ocrmypdf", "-l", config.language,
+            *ocr_command, "-l", config.language,
             "--output-type", "pdfa-2" if config.pdfa else "pdf",
             "--force-ocr" if config.page_mode == "force" else "--skip-text",
             "--jobs", "1",
@@ -170,7 +174,7 @@ def process_document(
             command.append("--invalidate-digital-signatures")
         if input_path.suffix.lower() != ".pdf":
             command += ["--image-dpi", "300"]
-        command += ["--plugin", str(PROJECT_ROOT / "ocr_plugin.py"), str(input_path), str(temporary_pdf)]
+        command += ["--plugin", str(BUNDLE_ROOT / "ocr_plugin.py"), str(input_path), str(temporary_pdf)]
         if progress:
             progress("Đang nhận dạng")
         try:

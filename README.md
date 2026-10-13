@@ -1,73 +1,64 @@
 # VietLayerOCR
 
-VietLayerOCR creates searchable PDF/A files and plain text from scanned Vietnamese documents. The repository contains a local OCR core, CLI, and a PySide6 desktop interface. The core can optionally ask a Codex or Claude CLI, or an OpenAI, Anthropic, or Gemini API, to review selected image crops.
+**Tiếng Việt** · [English](README.en.md)
+
+VietLayerOCR là ứng dụng desktop nhận dạng tài liệu scan tiếng Việt. Ứng dụng tạo PDF/A có lớp chữ để tìm kiếm, sao chép và xuất thêm file TXT. Luồng OCR cục bộ dùng OCRmyPDF, Tesseract, RapidOCR và VietOCR; người dùng có thể bật AI để đối chiếu những vùng chữ chưa chắc chắn.
+
+![Biểu tượng VietLayerOCR](assets/app_icon.png)
+
+## Bắt đầu
+
+Bạn có thể [chạy từ source](docs/BUILD.md#chạy-từ-source) hoặc [tự build ứng dụng desktop](docs/BUILD.md#đóng-gói-ứng-dụng-desktop) trên macOS, Linux và Windows. Hướng dẫn gồm các dependency cần cài, lệnh kiểm tra và vị trí file sau khi build.
+
+Để thử ngay trên macOS sau khi đã cài [Homebrew](https://brew.sh/) và [uv](https://docs.astral.sh/uv/getting-started/installation/), mở Terminal tại thư mục repo:
+
+```bash
+brew install tesseract tesseract-lang ghostscript
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
+uv pip install --python .venv/bin/python --no-deps vietocr==0.3.13
+.venv/bin/python scripts/download_vietocr.py --model transformer
+.venv/bin/python desktop.py --check
+.venv/bin/python desktop.py
+```
+
+Nếu chưa có repo, dùng `git clone https://github.com/tvkhieu1998/VietLayerOCR.git` rồi `cd VietLayerOCR` trước các lệnh trên. Hãy kiểm tra `vie` xuất hiện trong `tesseract --list-langs`. Hướng dẫn đầy đủ cho [Linux](docs/BUILD.md#linux-debianubuntu) và [Windows](docs/BUILD.md#windows-powershell) nằm trong tài liệu build.
+
+> **Tình trạng build:** Bản macOS đã được build và chạy thử cục bộ. Lệnh build Linux và Windows đã được chuẩn bị nhưng chưa xác nhận trên hai hệ điều hành đó. Bản `.app` hiện chưa ký bằng Developer ID và chưa notarize.
+
+## Cách dùng
+
+1. Chọn **Thêm tài liệu** để mở PDF hoặc ảnh.
+2. Bấm **Nhận dạng tài liệu**. Mặc định toàn bộ OCR chạy cục bộ; không cần tài khoản AI.
+3. Chọn **Chi tiết** để xem và sửa vùng chữ cần đối chiếu; chọn **Tổng thể text** để đọc và sao chép chữ của trang.
+4. Bấm **Xuất PDF** để lưu PDF có lớp chữ hoặc **Xuất TXT** để lưu văn bản. Kiểm tra kết quả với bản scan trước khi dùng.
+
+Nếu muốn dùng AI, vào **Cài đặt OCR**, chọn Provider CLI hoặc API AI rồi kiểm tra kết nối. Khi bật **Sử dụng AI**, ảnh crop và các bản đọc OCR của vùng cần đối chiếu có thể được gửi tới nhà cung cấp đã chọn. API key chỉ được giữ trong phiên ứng dụng, không lưu vào QSettings. Nếu AI lỗi, ứng dụng giữ kết quả OCR cục bộ và báo trạng thái.
 
 ## Pipeline
 
-1. OCRmyPDF renders each PDF page, handles rotation and deskew, and assembles the output PDF/A.
-2. Tesseract reads a contrast-enhanced copy of the page and creates positioned hOCR words.
-3. RapidOCR detects text regions on the original page at two image sizes.
-4. VietOCR reads each region locally. The selection step compares its result with Tesseract, preserves conflicting numbers, and flags uncertain text for review.
-5. When enabled, the selected CLI or API reviews cropped regions where the local readers disagree or mark text uncertain. Its JSON response is checked against the requested region IDs. Conflicting numbers remain flagged for human review.
-6. The selected words are written back into hOCR at the detected positions before OCRmyPDF creates the searchable text layer. The CLI also extracts a TXT file.
+1. OCRmyPDF chuẩn bị trang, xử lý xoay/nghiêng và tạo PDF/A.
+2. Tesseract đọc trang đã tăng tương phản, tạo chữ và tọa độ hOCR.
+3. RapidOCR phát hiện vùng chữ; VietOCR đọc lại từng vùng.
+4. Bộ chọn so sánh hai bản đọc, giữ các số mâu thuẫn để người dùng kiểm tra. AI là lớp đối chiếu tùy chọn cho vùng chưa chắc chắn.
+5. Chữ đã chọn được đặt vào đúng tọa độ của lớp chữ PDF; ứng dụng đồng thời xuất TXT.
 
-The source page image stays visible in the PDF. Tesseract and VietOCR run locally. The optional AI transport sends selected crops and both local readings to the configured provider.
+## Dùng dòng lệnh và phát triển
 
-## Requirements
-
-- Python 3.12, Tesseract with Vietnamese language data, Ghostscript, and OCRmyPDF's platform dependencies.
-- On macOS/Linux, create a project environment with `uv venv --python 3.12 .venv`, then install `uv pip install --python .venv/bin/python -r requirements.txt` and `uv pip install --python .venv/bin/python --no-deps vietocr==0.3.13`.
-- On Windows, use `.venv\\Scripts\\python.exe` in the same `uv pip install --python` commands.
-- A VietOCR checkpoint: `python scripts/download_vietocr.py --model transformer`. The script verifies its SHA-256 before use. Model weights are ignored by Git.
-
-Platform package installation differs across Windows, macOS, and Linux. Check that `ocrmypdf`, `tesseract`, and `gs` are available on `PATH` before running the CLI.
-
-## Use
-
-Launch the desktop interface:
+Sau khi [cài môi trường chạy từ source](docs/BUILD.md#chạy-từ-source):
 
 ```bash
-python desktop.py
-python desktop.py --check
+.venv/bin/python cli.py input.pdf output.pdf --export both --language vie
+.venv/bin/python -m unittest discover -s tests -v
 ```
 
-The launcher automatically uses the project's `.venv` when it exists. `--check` prints the Python and PySide6 versions without opening a window. OCR also needs `tesseract`, `gs`, and the `ocrmypdf` executable available on `PATH`; the launcher adds `.venv/bin` (or `.venv\\Scripts`) to `PATH`.
+Trên Windows, thay `.venv/bin/python` bằng `.\.venv\Scripts\python.exe`. CLI có `--export pdf|txt|both`, `--force-ocr` để đọc lại PDF đã có chữ và `--no-pdfa` để xuất PDF thường. Python API là `vietlayer.process_document(input_path, output_pdf_path, OcrConfig(...))`. [Báo cáo kiểm thử luồng AI](reports/ai-core-review.html) có bằng chứng theo từng giai đoạn.
 
-Use **Thêm tài liệu** to import a PDF or image, then **Nhận dạng tài liệu** in the left panel. The right panel has **Chi tiết** for reviewing a flagged region and **Tổng thể text** for reading and copying the selected page's text. In Chi tiết, choose **Chỉnh sửa** to unlock the selected text. After editing, **Lưu chỉnh sửa** reprocesses the original document with the correction before PDF/TXT export. Corrections carry region coordinates; if a region cannot be matched on the next pass, the app blocks export and asks for review. **Xuất TXT** in Tổng thể text uses the same whole-document export as the top bar; the page view itself is read-only. **Xuất PDF** saves the searchable PDF separately. OCR runs in a background thread so the window remains responsive.
+## Giới hạn hiện tại
 
-The **Sử dụng AI** switch displays a privacy warning. **Cài đặt OCR** switches to an AI settings page inside the main window. Two radio controls select Provider CLI or API AI; Provider CLI is selected by default. The CLI column checks installation, authentication, and live connectivity without sending a document, then enables model and effort selection. The API column accepts an OpenAI, Anthropic, or Gemini key for the current app session. The key is held in memory and is not saved to QSettings. Both transports receive the same selected crop batches and return the same region JSON; the same arbitration rules select the final OCR text. A failed API batch falls back to the local OCR result and is reported in the desktop status. CLI preferences are saved locally, but the app requires a fresh successful connection check each session. With AI off, recognition uses only local Tesseract and VietOCR. The desktop uses the transformer model under `models/vietocr` by default, or the directory in `VIETLAYER_MODEL_DIR`.
+- Tesseract và dữ liệu tiếng Việt phải được cài trên máy chạy ứng dụng. Linux và Windows cũng cần Ghostscript; bản macOS chỉ đóng gói Ghostscript khi tìm thấy `.venv/ghostscript/bin/gs` lúc build.
+- Vùng tô sáng dùng tọa độ ảnh OCR quy đổi lên trang PDF. Với trang bị xoay hoặc chỉnh nghiêng mạnh, cần kiểm tra vị trí vùng chữ bằng mắt.
+- Sau khi sửa tay một vùng, ứng dụng chạy lại OCR để PDF và TXT nhất quán; thời gian chờ gần tương đương lần xử lý đầu.
+- Gói build có thể lớn vì chứa PyTorch, ONNX Runtime và model VietOCR. Công cụ Codex/Claude CLI, nếu dùng, cần cài riêng.
 
-The CLI remains available:
-
-```bash
-python cli.py input.pdf output.pdf
-python cli.py scan.png output.pdf --export both --language vie
-python cli.py input.pdf output.pdf --model-dir /path/to/vietocr
-```
-
-`--export pdf`, `--export txt`, and `--export both` choose the output. `--force-ocr` processes pages that already contain text. `--no-pdfa` produces a regular PDF. The Python API is `vietlayer.process_document(input_path, output_pdf_path, OcrConfig(...))` and returns `OcrResult` with output paths, counts, duration, and page reports.
-
-To try the optional AI core with a Codex CLI that is already installed and signed in:
-
-```python
-from pathlib import Path
-from vietlayer import OcrConfig, process_document
-
-result = process_document(
-    "scan.png",
-    "output.pdf",
-    OcrConfig(ai_provider="codex-cli", evidence_dir=Path("evidence")),
-)
-```
-
-Only enable this for documents whose selected text crops may be sent to the provider. If the AI call fails, the page keeps its local OCR choice and the desktop reports the failed AI batches. A synthetic end-to-end Codex run and stage evidence are in [the AI core report](reports/ai-core-review.html).
-
-## Development
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-Source file names, functions, classes, variables, environment variables, and report keys use English. User-facing messages are Vietnamese. The `models/vietocr/*.yml` names follow VietOCR's upstream checkpoint format.
-
-**Current review limitation:** Highlight boxes use OCR page pixel coordinates mapped to the displayed PDF page. OCRmyPDF may rotate or deskew a source page, so overlays should be checked visually on heavily transformed scans. Saving a manual correction reruns OCR to keep the PDF/A text layer and TXT consistent; it takes approximately as long as the first pass.
+Tên file, hàm và biến trong source dùng tiếng Anh; chữ hiển thị cho người dùng dùng tiếng Việt.
