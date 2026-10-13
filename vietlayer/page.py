@@ -13,8 +13,10 @@ from pathlib import Path
 from lxml import etree
 from PIL import Image, ImageDraw, ImageOps
 
-from .regions import analyze_regions, intersection_area
-from .selection import choose_text
+from .ai_cli import ClaudeCliProvider, CodexCliProvider
+from .ai_api import ApiAiProvider
+from .regions import analyze_regions, box_area, intersection_area
+from .selection import choose_text, choose_with_ai
 from .vietocr_reader import read_image
 
 
@@ -215,12 +217,57 @@ def _page_text(tree) -> str:
     return "\n\n".join(paragraphs) + "\n"
 
 
-def process_page(image_path: Path, hocr_path: Path, text_path: Path | None, page_number: int) -> dict:
+def _matching_correction(
+    corrections: dict,
+    identifier: str,
+    box: tuple[int, int, int, int],
+    used_keys: set[str],
+) -> tuple[str | None, str | None]:
+    for key in (identifier, *(key for key in corrections if key != identifier)):
+        if key in used_keys:
+            continue
+        value = corrections.get(key)
+        if isinstance(value, str):
+            if key == identifier:
+                return value, key
+            continue
+        if not isinstance(value, dict) or not isinstance(value.get("text"), str):
+            continue
+        saved_box = value.get("bbox")
+        if not isinstance(saved_box, (list, tuple)) or len(saved_box) != 4:
+            continue
+        try:
+            saved_box = tuple(int(coordinate) for coordinate in saved_box)
+        except (TypeError, ValueError):
+            continue
+        intersection = intersection_area(box, saved_box)
+        union = box_area(box) + box_area(saved_box) - intersection
+        if union and intersection / union >= 0.55:
+            return value["text"], key
+    return None, None
+
+
+def process_page(
+    image_path: Path,
+    hocr_path: Path,
+    text_path: Path | None,
+    page_number: int,
+    corrections: dict[str, str | dict] | None = None,
+    *,
+    ai_provider: str | None = None,
+    ai_model: str | None = None,
+    ai_effort: str | None = None,
+    ai_api_key: str | None = None,
+    ai_timeout_seconds: int = 180,
+    evidence_dir: Path | None = None,
+) -> dict:
     report = {"page": page_number, "review_regions": [], "printed_corrections": [], "errors": [],
               "isolated_region_count": 0, "line_count": 0}
     tree = etree.parse(str(hocr_path), etree.XMLParser(resolve_entities=False, no_network=True))
     page_element = next(element for element in tree.iter() if _class_name(element) == "ocr_page")
     image = Image.open(image_path).convert("RGB")
+    report["image_size"] = [image.width, image.height]
+    corrections = corrections or {}
     words = []
     for line in [element for element in tree.iter() if _class_name(element) in LINE_CLASSES]:
         for element in line.iter():
@@ -239,10 +286,23 @@ def process_page(image_path: Path, hocr_path: Path, text_path: Path | None, page
     report["isolated_region_count"] = len(isolated)
     entries = []
     source_counts = {}
+    used_correction_keys: set[str] = set()
     grouped = [(f"l{index:02d}", "line", region, region["bbox"], _crop_line(image, region, words, isolated))
                for index, region in enumerate(lines, 1)]
     grouped += [(f"i{index:02d}", "isolated", region, region["bbox"], _crop_isolated(image, region))
                 for index, region in enumerate(isolated, 1)]
+    evidence_page = Path(evidence_dir) / f"page-{page_number:05d}" if evidence_dir else None
+    if evidence_page:
+        evidence_page.mkdir(parents=True, exist_ok=True)
+        image.save(evidence_page / "original.png")
+        annotated = image.copy()
+        overlay = ImageDraw.Draw(annotated)
+        for identifier, region_type, _, box, crop in grouped:
+            overlay.rectangle(box, outline="#B65A34", width=3)
+            overlay.text((box[0], max(0, box[1] - 14)), identifier, fill="#B65A34")
+            crop.save(evidence_page / f"crop-{identifier}.png")
+        annotated.save(evidence_page / "regions.png")
+    records = []
     for identifier, region_type, region, box, crop in grouped:
         previous = " ".join(word["text"] for word in region["words"])
         confidence = min((word["confidence"] for word in region["words"]), default=0)
@@ -255,22 +315,77 @@ def process_page(image_path: Path, hocr_path: Path, text_path: Path | None, page
             candidate, model_reasons = None, [f"VietOCR lỗi: {type(error).__name__}"]
             report["errors"].append(f"{identifier}: {type(error).__name__}")
         decision = choose_text(previous, confidence, candidate, region_type)
-        source_counts[decision.source] = source_counts.get(decision.source, 0) + 1
-        reasons = ([decision.reason] if decision.needs_review else []) + model_reasons
-        if decision.source == "vietocr" and decision.text:
+        manual_text, correction_key = _matching_correction(corrections, identifier, box, used_correction_keys)
+        if correction_key is not None:
+            used_correction_keys.add(correction_key)
+        records.append({"id": identifier, "type": region_type, "region": region, "box": box,
+                        "crop": crop, "previous": previous, "confidence": confidence,
+                        "candidate": candidate, "model_reasons": model_reasons,
+                        "local": decision, "manual_text": manual_text,
+                        "correction_key": correction_key})
+    ai_answers = {}
+    ai_requests = [record for record in records if record["manual_text"] is None and
+                   (record["local"].needs_review or record["model_reasons"] or
+                    record["type"] == "isolated" or
+                    (record["candidate"] is not None and
+                     record["previous"] != record["candidate"]))]
+    ai_errors = []
+    if ai_provider and ai_requests:
+        if ai_provider in {"codex-cli", "claude-cli"}:
+            provider_type = CodexCliProvider if ai_provider == "codex-cli" else ClaudeCliProvider
+            provider = provider_type(model=ai_model, effort=ai_effort)
+        elif ai_provider in {"openai-api", "anthropic-api", "gemini-api"}:
+            provider = ApiAiProvider(ai_provider, ai_api_key or "", model=ai_model)
+        else:
+            raise ValueError("Provider AI chưa được hỗ trợ.")
+        for start in range(0, len(ai_requests), 6):
+            batch = ai_requests[start:start + 6]
+            try:
+                ai_answers.update(provider.review([
+                    {"id": record["id"], "crop": record["crop"],
+                     "tesseract": record["previous"], "vietocr": record["candidate"] or ""}
+                    for record in batch
+                ], timeout_seconds=ai_timeout_seconds))
+            except Exception as error:
+                LOGGER.warning("AI review failed on page %s: %s", page_number, error)
+                ai_errors.append({"regions": [record["id"] for record in batch],
+                                  "error": type(error).__name__, "message": str(error)})
+    report["ai_review"] = {"provider": ai_provider, "requested": len(ai_requests) if ai_provider else 0,
+                           "received": len(ai_answers), "errors": ai_errors}
+    report["regions"] = []
+    for record in records:
+        identifier, region_type, region, box = (record[key] for key in ("id", "type", "region", "box"))
+        previous, candidate = record["previous"], record["candidate"]
+        manual_text, correction_key = record["manual_text"], record["correction_key"]
+        answer = ai_answers.get(identifier)
+        decision = (choose_with_ai(record["local"], previous, candidate, answer["text"], region_type,
+                                   answer["uncertain"]) if answer else record["local"])
+        selected_text = manual_text.strip() if manual_text is not None else decision.text
+        source = "manual" if manual_text is not None else decision.source
+        source_counts[source] = source_counts.get(source, 0) + 1
+        reasons = [] if manual_text is not None else ([decision.reason] if decision.needs_review else [])
+        if answer is None:
+            reasons += record["model_reasons"]
+        candidates = {"tesseract": previous, "vietocr": candidate or "", "ai": answer["text"] if answer else ""}
+        report["regions"].append({"id": identifier, "type": region_type, "bbox": list(box),
+                                  "candidates": candidates, "text": selected_text, "source": source,
+                                  "needs_review": bool(reasons), "reasons": reasons})
+        if source in {"vietocr", "manual", "ai"} and selected_text:
             for word in region["words"]:
                 _remove(word["element"])
-            entries.append((box, f"p{page_number}{identifier}", decision.text))
-            if region_type == "line" and decision.text != previous:
+            entries.append((box, f"p{page_number}{identifier}", selected_text))
+            if region_type == "line" and selected_text != previous:
                 report["printed_corrections"].append({"page": page_number, "before": previous,
-                    "after": decision.text, "source": "VietOCR",
-                    "numbers_changed": re.findall(r"\d+", previous) != re.findall(r"\d+", decision.text)})
-        if region_type == "isolated" or reasons:
+                    "after": selected_text, "source": source,
+                    "numbers_changed": re.findall(r"\d+", previous) != re.findall(r"\d+", selected_text)})
+        if region_type == "isolated" or reasons or manual_text is not None or answer is not None:
             report["review_regions"].append({"page": page_number, "region": identifier,
-                "text": decision.text, "needs_review": bool(reasons), "reasons": reasons,
-                "source": decision.source,
-                "candidates": {"tesseract": previous, "vietocr": candidate or ""}})
+                "region_type": region_type, "bbox": list(box),
+                "text": selected_text, "needs_review": bool(reasons), "reasons": reasons,
+                "source": source, "correction_key": correction_key,
+                "candidates": candidates})
     report["local_reader"] = {"regions": len(grouped), "vietocr_calls": len(grouped), "sources": source_counts}
+    report["unapplied_corrections"] = sorted(set(corrections) - used_correction_keys)
     ink = ImageOps.autocontrast(image.convert("L"), cutoff=1).point(lambda value: 255 if value < 140 else 0)
     entries = [(_tighten_box(box, ink) if "\n" not in text else box, identifier, text)
                for box, identifier, text in entries]
@@ -282,6 +397,10 @@ def process_page(image_path: Path, hocr_path: Path, text_path: Path | None, page
     tree.write(str(hocr_path), xml_declaration=True, encoding="UTF-8", doctype=tree.docinfo.doctype)
     if text_path is not None:
         Path(text_path).write_text(_page_text(tree), encoding="utf-8")
+    if evidence_page:
+        (evidence_page / "decisions.json").write_text(
+            json.dumps({"regions": report["regions"], "ai_review": report["ai_review"]},
+                       ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
 

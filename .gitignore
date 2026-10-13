@@ -18,6 +18,8 @@ evidence/
 *.pdf
 *.txt
 !requirements*.txt
+!reports/ai-core-review-assets/synthetic-result.pdf
+!reports/ai-core-review-assets/synthetic-result.txt
 
 # Downloaded model weights; keep YAML configuration in Git
 *.pth

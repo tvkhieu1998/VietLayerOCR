@@ -1,0 +1,143 @@
+{
+  "regions": [
+    {
+      "id": "l01",
+      "type": "line",
+      "bbox": [
+        382,
+        146,
+        724,
+        203
+      ],
+      "candidates": {
+        "tesseract": "BẢN GHI NHẬN",
+        "vietocr": "BẢN GHI NHẬN",
+        "ai": ""
+      },
+      "text": "BẢN GHI NHẬN",
+      "source": "tesseract",
+      "needs_review": false,
+      "reasons": []
+    },
+    {
+      "id": "l02",
+      "type": "line",
+      "bbox": [
+        117,
+        304,
+        385,
+        366
+      ],
+      "candidates": {
+        "tesseract": "Số hồ sơ: 1234",
+        "vietocr": "Số hồ sơ: 1234",
+        "ai": ""
+      },
+      "text": "Số hồ sơ: 1234",
+      "source": "vietocr",
+      "needs_review": false,
+      "reasons": []
+    },
+    {
+      "id": "l03",
+      "type": "line",
+      "bbox": [
+        114,
+        394,
+        591,
+        459
+      ],
+      "candidates": {
+        "tesseract": "Họ và tên: Nguyễn Văn An",
+        "vietocr": "Họ và tên: nguyễn Văn An",
+        "ai": "Họ và tên: Nguyễn Văn An"
+      },
+      "text": "Họ và tên: Nguyễn Văn An",
+      "source": "tesseract",
+      "needs_review": false,
+      "reasons": []
+    },
+    {
+      "id": "l04",
+      "type": "line",
+      "bbox": [
+        119,
+        493,
+        402,
+        546
+      ],
+      "candidates": {
+        "tesseract": "Bí danh: Không",
+        "vietocr": "Bí danh: Không",
+        "ai": ""
+      },
+      "text": "Bí danh: Không",
+      "source": "tesseract",
+      "needs_review": false,
+      "reasons": []
+    },
+    {
+      "id": "l05",
+      "type": "line",
+      "bbox": [
+        119,
+        580,
+        500,
+        639
+      ],
+      "candidates": {
+        "tesseract": "Ngày lập: 12/10/2026",
+        "vietocr": "Ngày lập: 12/10/2026",
+        "ai": ""
+      },
+      "text": "Ngày lập: 12/10/2026",
+      "source": "tesseract",
+      "needs_review": false,
+      "reasons": []
+    },
+    {
+      "id": "l06",
+      "type": "line",
+      "bbox": [
+        119,
+        753,
+        892,
+        818
+      ],
+      "candidates": {
+        "tesseract": "Nội dung được ghi nhận để kiểm tra lớp chữ.",
+        "vietocr": "Nội dung được ghi nhận để kiểm tra lớp chữ.",
+        "ai": ""
+      },
+      "text": "Nội dung được ghi nhận để kiểm tra lớp chữ.",
+      "source": "vietocr",
+      "needs_review": false,
+      "reasons": []
+    },
+    {
+      "id": "l07",
+      "type": "line",
+      "bbox": [
+        120,
+        846,
+        543,
+        908
+      ],
+      "candidates": {
+        "tesseract": "Người ký: Trần Thị Lan",
+        "vietocr": "Người ký: Trần Thị Lan",
+        "ai": ""
+      },
+      "text": "Người ký: Trần Thị Lan",
+      "source": "tesseract",
+      "needs_review": false,
+      "reasons": []
+    }
+  ],
+  "ai_review": {
+    "provider": "codex-cli",
+    "requested": 1,
+    "received": 1,
+    "errors": []
+  }
+}

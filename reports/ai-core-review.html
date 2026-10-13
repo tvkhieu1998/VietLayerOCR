@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VietLayerOCR · Báo cáo core AI</title>
+  <style>
+    :root { color-scheme: light; --ink:#513628; --muted:#795f51; --brown:#956145; --cream:#f4e8dc; --paper:#fffaf4; --line:#dbc2ad; --green:#3c765d; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#b99a80; color:var(--ink); font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; }
+    header { background:var(--brown); color:#fffaf4; padding:30px max(24px,calc((100vw - 1180px)/2)); }
+    header .eyebrow { text-transform:uppercase; letter-spacing:.22em; font-size:12px; opacity:.82; }
+    h1 { font-size:clamp(30px,4vw,48px); line-height:1.12; margin:10px 0; }
+    header p { max-width:780px; margin:0; opacity:.9; }
+    main { max-width:1180px; margin:26px auto 70px; padding:0 20px; }
+    .summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:24px; }
+    .metric,.card { background:var(--cream); border:1px solid var(--line); border-radius:20px; box-shadow:0 4px 16px #50322112; }
+    .metric { padding:18px 20px; }
+    .metric strong { display:block; font-size:28px; line-height:1.2; }
+    .metric span { color:var(--muted); font-size:13px; }
+    .card { padding:25px; margin:18px 0; }
+    h2 { font-size:22px; margin:0 0 8px; }
+    h3 { font-size:16px; margin:0 0 8px; }
+    p { margin:0 0 15px; }
+    .step { color:var(--brown); text-transform:uppercase; letter-spacing:.16em; font-size:12px; font-weight:700; }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
+    figure { margin:0; background:var(--paper); padding:12px; border:1px solid var(--line); border-radius:15px; }
+    figure img { display:block; width:100%; height:450px; object-fit:contain; background:white; border-radius:8px; }
+    figure.wide img { height:240px; }
+    figcaption { color:var(--muted); font-size:13px; padding:8px 3px 2px; }
+    .decision { overflow-x:auto; }
+    table { border-collapse:collapse; width:100%; background:var(--paper); border-radius:12px; overflow:hidden; }
+    th,td { text-align:left; vertical-align:top; padding:12px; border-bottom:1px solid var(--line); }
+    th { color:var(--muted); font-size:13px; white-space:nowrap; }
+    tr:last-child td { border-bottom:0; }
+    .chosen { color:var(--green); font-weight:700; }
+    .badge { display:inline-block; background:#e1eee5; color:#286347; border-radius:99px; padding:4px 10px; font-size:12px; font-weight:700; }
+    pre { overflow:auto; white-space:pre-wrap; background:var(--paper); border:1px solid var(--line); border-radius:12px; padding:18px; font:15px/1.65 ui-monospace,SFMono-Regular,Consolas,monospace; }
+    a { color:#814b31; font-weight:700; }
+    .links { display:flex; flex-wrap:wrap; gap:10px; }
+    .links a { display:inline-block; padding:10px 16px; background:var(--paper); border:1px solid var(--line); border-radius:11px; text-decoration:none; }
+    .note { padding:13px 16px; border-left:4px solid #c7933a; background:#ffedc9; border-radius:0 10px 10px 0; }
+    footer { color:#f8ede3; text-align:center; padding:15px; font-size:12px; }
+    @media (max-width:760px) { .summary { grid-template-columns:repeat(2,1fr); } .grid { grid-template-columns:1fr; } .card { padding:18px; } figure img { height:350px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="eyebrow">VietLayerOCR / core pipeline / evidence</div>
+    <h1>Đối chiếu OCR với Codex CLI</h1>
+    <p>Kiểm tra đầu cuối trên một trang tiếng Việt tự tạo. Tài liệu thật không được dùng trong phép thử này.</p>
+  </header>
+  <main>
+    <section class="summary" aria-label="Tóm tắt">
+      <div class="metric"><strong>1 trang</strong><span>Ảnh đầu vào</span></div>
+      <div class="metric"><strong>7 vùng</strong><span>Tesseract + VietOCR</span></div>
+      <div class="metric"><strong>1 / 1</strong><span>Vùng gửi / nhận từ AI</span></div>
+      <div class="metric"><strong>29,33 s</strong><span>Thời gian xử lý</span></div>
+    </section>
+
+    <section class="card">
+      <span class="step">Bước 01 · Tài liệu đầu vào</span>
+      <h2>Trang ảnh không có lớp chữ</h2>
+      <p>Ảnh PNG 1240 × 1754 px được tạo từ chữ tiếng Việt, có làm mờ nhẹ để mô phỏng bản quét. Đây là toàn bộ dữ liệu đầu vào của phép thử.</p>
+      <div class="grid">
+        <figure><img src="ai-core-review-assets/synthetic-input.png" alt="Ảnh tài liệu giả lập ban đầu"><figcaption>Ảnh gốc · không có text layer</figcaption></figure>
+        <figure><img src="ai-core-review-assets/stages/page-00001/tesseract-enhanced.png" alt="Ảnh sau tăng tương phản"><figcaption>Ảnh tăng tương phản đưa cho Tesseract</figcaption></figure>
+      </div>
+    </section>
+
+    <section class="card">
+      <span class="step">Bước 02 · Phân vùng và đọc cục bộ</span>
+      <h2>Phát hiện 7 vùng chữ</h2>
+      <p>RapidOCR xác định vùng; Tesseract tạo hOCR có vị trí, VietOCR đọc lại từng crop. Mỗi vùng có ảnh crop riêng trong thư mục evidence.</p>
+      <figure><img src="ai-core-review-assets/stages/page-00001/regions.png" alt="Ảnh tài liệu với 7 khung vùng OCR"><figcaption>Khung vùng chữ và ID trên trang · l01–l07</figcaption></figure>
+    </section>
+
+    <section class="card">
+      <span class="step">Bước 03 · Đối chiếu AI</span>
+      <h2>Một vùng có khác biệt được gửi lên Codex CLI</h2>
+      <p>Ở vùng <strong>l03</strong>, VietOCR viết “nguyễn” thường còn Tesseract viết “Nguyễn” hoa. Core gửi đúng ảnh crop này và hai bản đọc làm gợi ý. CLI đã đăng nhập trả JSON có ID hợp lệ; kết quả trùng Tesseract.</p>
+      <figure class="wide"><img src="ai-core-review-assets/stages/page-00001/crop-l03.png" alt="Vùng Họ và tên được gửi cho AI"><figcaption>Ảnh crop l03 thực tế được gửi cho provider</figcaption></figure>
+      <div class="decision">
+        <table>
+          <thead><tr><th>Nguồn</th><th>Bản đọc</th><th>Kết luận</th></tr></thead>
+          <tbody>
+            <tr><td>Tesseract</td><td>Họ và tên: Nguyễn Văn An</td><td></td></tr>
+            <tr><td>VietOCR</td><td>Họ và tên: nguyễn Văn An</td><td></td></tr>
+            <tr><td>Codex CLI</td><td>Họ và tên: Nguyễn Văn An</td><td><span class="badge">Đã nhận JSON</span></td></tr>
+            <tr><td>Core chọn</td><td class="chosen">Họ và tên: Nguyễn Văn An</td><td>Tesseract được AI xác nhận</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">AI chỉ được gọi cho vùng khác nhau, không tự sửa số khi số AI đọc xung đột với kết quả cục bộ. Lỗi CLI sẽ giữ quyết định cục bộ và được ghi vào báo cáo vùng.</p>
+    </section>
+
+    <section class="card">
+      <span class="step">Bước 04 · Xuất kết quả</span>
+      <h2>PDF có lớp chữ và TXT đi cùng</h2>
+      <p>OCRmyPDF đã xuất PDF một trang. PDF có OutputIntent và metadata PDF/A-2B; pdfminer trích được lớp chữ. Nội dung trích từ PDF khớp tệp TXT.</p>
+      <div class="grid">
+        <figure><img src="ai-core-review-assets/final-pdf-preview.png" alt="Bản xem trước trang PDF cuối"><figcaption>Trang PDF kết quả đã render lại</figcaption></figure>
+        <div><h3>Nội dung TXT cuối</h3><pre>BẢN GHI NHẬN
+
+Số hồ sơ: 1234
+
+Họ và tên: Nguyễn Văn An
+
+Bí danh: Không
+
+Ngày lập: 12/10/2026
+
+Nội dung được ghi nhận để kiểm tra lớp chữ.
+
+Người ký: Trần Thị Lan</pre></div>
+      </div>
+      <div class="links"><a href="ai-core-review-assets/synthetic-result.pdf">Mở PDF kết quả</a><a href="ai-core-review-assets/synthetic-result.txt">Mở TXT kết quả</a><a href="ai-core-review-assets/stages/page-00001/decisions.json">Xem quyết định từng vùng</a><a href="ai-core-review-assets/run-report.json">Xem báo cáo máy</a></div>
+    </section>
+
+    <section class="card">
+      <span class="step">Phạm vi đã kiểm tra</span>
+      <h2>Kết quả và giới hạn</h2>
+      <p>32 bài kiểm thử tự động qua. Lần chạy đầu cuối thật với Codex CLI: 1 vùng yêu cầu, 1 vùng phản hồi, không có lỗi AI. Lớp chữ PDF và TXT khớp nhau trên trang giả lập.</p>
+      <p>Phép thử này chưa chứng minh độ chính xác trên tài liệu khó, nhiều trang, chữ ký số hoặc provider CLI khác. Nút “Sử dụng AI” trên desktop vẫn chờ màn cài đặt kết nối với core.</p>
+    </section>
+  </main>
+  <footer>VietLayerOCR · evidence được tạo từ dữ liệu giả lập · 13/10/2026</footer>
+</body>
+</html>

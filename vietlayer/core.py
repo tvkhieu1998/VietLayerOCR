@@ -1,4 +1,4 @@
-"""Document OCR API shared by the CLI and a future desktop UI."""
+"""Document OCR API shared by the CLI and desktop UI."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Literal
 
@@ -28,7 +28,15 @@ class OcrConfig:
     export_format: Literal["pdf", "txt", "both"] = "both"
     deskew: bool = True
     rotate_pages: bool = True
+    invalidate_digital_signatures: bool = False
+    ai_provider: Literal["codex-cli", "claude-cli", "openai-api", "anthropic-api", "gemini-api"] | None = None
+    ai_model: str | None = None
+    ai_effort: str | None = None
+    ai_api_key: str | None = field(default=None, repr=False)
+    ai_timeout_seconds: int = 180
+    evidence_dir: Path | None = None
     timeout_minutes: int = 30
+    corrections: dict[str, dict[str, str | dict]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -39,16 +47,26 @@ class OcrResult:
     character_count: int
     elapsed_seconds: float
     report: list[dict]
+    page_texts: list[str] = field(default_factory=list)
 
 
 class OcrError(RuntimeError):
     """The document could not be processed by OCRmyPDF or its dependencies."""
 
 
+class DigitalSignatureError(OcrError):
+    """OCR needs explicit consent to invalidate a signed PDF copy."""
+
+
+def _split_page_texts(raw_text: str, page_count: int) -> list[str]:
+    pages = raw_text.split("\f")
+    return [pages[index].strip() if index < len(pages) else "" for index in range(page_count)]
+
+
 def _extract_text(pdf_path: Path) -> str:
     from pdfminer.high_level import extract_text
 
-    return (extract_text(str(pdf_path)) or "").replace("\f", "\n\n").strip()
+    return extract_text(str(pdf_path)) or ""
 
 
 def _count_pages(pdf_path: Path) -> int:
@@ -84,6 +102,14 @@ def process_document(
         raise ValueError("Định dạng xuất phải là pdf, txt hoặc both.")
     if config.timeout_minutes <= 0:
         raise ValueError("Thời gian tối đa phải lớn hơn 0.")
+    if config.ai_provider not in {None, "codex-cli", "claude-cli", "openai-api", "anthropic-api", "gemini-api"}:
+        raise ValueError("Provider AI chưa được hỗ trợ.")
+    if config.ai_provider and config.ai_provider.endswith("-api") and not config.ai_api_key:
+        raise ValueError("Cần API key để sử dụng AI qua API.")
+    if config.ai_effort not in {None, "low", "medium", "high", "xhigh", "max"}:
+        raise ValueError("Mức suy luận AI không hợp lệ.")
+    if config.ai_timeout_seconds <= 0:
+        raise ValueError("Thời gian chờ AI phải lớn hơn 0.")
 
     config_name = "vgg-transformer" if config.model == "transformer" else "vgg-seq2seq"
     model_dir = Path(config.model_dir or DEFAULT_MODEL_DIR).expanduser().resolve()
@@ -94,6 +120,10 @@ def process_document(
     for executable in ("ocrmypdf", "tesseract"):
         if not shutil.which(executable):
             raise FileNotFoundError(f"Chưa cài hoặc chưa đưa {executable} vào PATH.")
+    if config.ai_provider and config.ai_provider.endswith("-cli"):
+        executable = "codex" if config.ai_provider == "codex-cli" else "claude"
+        if not shutil.which(executable):
+            raise FileNotFoundError(f"Chưa cài hoặc chưa đưa {executable} CLI vào PATH.")
 
     output_pdf_path.parent.mkdir(parents=True, exist_ok=True)
     started_at = time.monotonic()
@@ -108,6 +138,24 @@ def process_document(
             "VIETOCR_MODEL_NAME": config.model,
             "VIETOCR_MODEL_DIR": str(model_dir),
         })
+        for name in ("VIETLAYER_AI_PROVIDER", "VIETLAYER_AI_TIMEOUT_SECONDS", "VIETLAYER_AI_MODEL",
+                     "VIETLAYER_AI_EFFORT", "VIETLAYER_AI_API_KEY"):
+            environment.pop(name, None)
+        if config.ai_provider:
+            environment["VIETLAYER_AI_PROVIDER"] = config.ai_provider
+            environment["VIETLAYER_AI_TIMEOUT_SECONDS"] = str(config.ai_timeout_seconds)
+            if config.ai_model:
+                environment["VIETLAYER_AI_MODEL"] = config.ai_model
+            if config.ai_effort:
+                environment["VIETLAYER_AI_EFFORT"] = config.ai_effort
+            if config.ai_api_key:
+                environment["VIETLAYER_AI_API_KEY"] = config.ai_api_key
+        if config.evidence_dir:
+            environment["VIETLAYER_EVIDENCE_DIR"] = str(Path(config.evidence_dir).expanduser().resolve())
+        if config.corrections:
+            correction_path = temporary_directory / "corrections.json"
+            correction_path.write_text(json.dumps(config.corrections, ensure_ascii=False), encoding="utf-8")
+            environment["VIETLAYER_CORRECTIONS_PATH"] = str(correction_path)
         command = [
             "ocrmypdf", "-l", config.language,
             "--output-type", "pdfa-2" if config.pdfa else "pdf",
@@ -118,6 +166,8 @@ def process_document(
             command.append("--deskew")
         if config.rotate_pages:
             command.append("--rotate-pages")
+        if config.invalidate_digital_signatures:
+            command.append("--invalidate-digital-signatures")
         if input_path.suffix.lower() != ".pdf":
             command += ["--image-dpi", "300"]
         command += ["--plugin", str(PROJECT_ROOT / "ocr_plugin.py"), str(input_path), str(temporary_pdf)]
@@ -135,10 +185,18 @@ def process_document(
             raise OcrError("Xử lý quá thời gian cho phép.") from error
         if completed.returncode != 0 or not temporary_pdf.is_file():
             detail = (completed.stderr or completed.stdout or "")[-1500:].strip()
+            if not config.invalidate_digital_signatures and (
+                "DigitalSignatureError" in detail or "digital signature" in detail.lower()
+            ):
+                raise DigitalSignatureError(
+                    "Tài liệu có chữ ký số. Tạo bản OCR mới sẽ làm chữ ký số trên bản xuất mất hiệu lực."
+                )
             raise OcrError(f"OCRmyPDF không hoàn thành (mã {completed.returncode}). {detail}")
 
-        text = _extract_text(temporary_pdf)
         page_count = _count_pages(temporary_pdf)
+        raw_text = _extract_text(temporary_pdf)
+        page_texts = _split_page_texts(raw_text, page_count)
+        text = raw_text.replace("\f", "\n\n").strip()
         report = [json.loads(path.read_text(encoding="utf-8"))
                   for path in sorted(report_dir.glob("page_*.json"))]
         temporary_text = temporary_directory / "result.txt"
@@ -159,4 +217,5 @@ def process_document(
         len(text),
         round(time.monotonic() - started_at, 2),
         report,
+        page_texts,
     )

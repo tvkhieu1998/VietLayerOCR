@@ -1,8 +1,10 @@
 """OCRmyPDF hook: enhance the OCR image and revise positioned hOCR text."""
 
 import logging
+import json
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -32,8 +34,25 @@ class LocalOcrEngine(TesseractOcrEngine):
             return
         match = re.match(r"(\d+)", original_image.name)
         page_number = int(match.group(1)) if match else 0
+        evidence_dir = os.environ.get("VIETLAYER_EVIDENCE_DIR")
+        if evidence_dir and enhanced_image.is_file():
+            page_dir = Path(evidence_dir) / f"page-{page_number:05d}"
+            page_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(enhanced_image, page_dir / "tesseract-enhanced.png")
         try:
-            report = process_page(original_image, Path(output_hocr), output_text, page_number)
+            correction_path = os.environ.get("VIETLAYER_CORRECTIONS_PATH")
+            corrections = {}
+            if correction_path:
+                corrections = json.loads(Path(correction_path).read_text(encoding="utf-8")).get(str(page_number), {})
+            report = process_page(
+                original_image, Path(output_hocr), output_text, page_number, corrections,
+                ai_provider=os.environ.get("VIETLAYER_AI_PROVIDER"),
+                ai_model=os.environ.get("VIETLAYER_AI_MODEL"),
+                ai_effort=os.environ.get("VIETLAYER_AI_EFFORT"),
+                ai_api_key=os.environ.get("VIETLAYER_AI_API_KEY"),
+                ai_timeout_seconds=int(os.environ.get("VIETLAYER_AI_TIMEOUT_SECONDS", "180")),
+                evidence_dir=Path(evidence_dir) if evidence_dir else None,
+            )
         except Exception as error:
             LOGGER.exception("Page %s: OCR revision failed; preserving Tesseract text", page_number)
             report = {"page": page_number, "review_regions": [], "printed_corrections": [],

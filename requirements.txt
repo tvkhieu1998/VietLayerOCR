@@ -1,4 +1,5 @@
 # Phụ thuộc của lõi OCR desktop, không gồm Flask/gunicorn và các model AI cloud.
+PySide6>=6.7,<7
 ocrmypdf>=16,<17
 pdfminer.six
 # Cặp phiên bản có wheel cho macOS 13 + Python 3.12, tránh biên dịch libqpdf.
@@ -12,8 +13,8 @@ onnxruntime
 # VietOCR/PyTorch 2.2 trên macOS 13 dùng NumPy 1.x; OpenCV 4.12 đòi NumPy 2.
 numpy>=1.26,<2
 opencv-python>=4.8,<4.12
-torch
-torchvision
+torch==2.2.2
+torchvision==0.17.2
 einops
 PyYAML
 # VietOCR 0.3.13 cài riêng với --no-deps; xem README.md.
