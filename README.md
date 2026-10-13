@@ -62,3 +62,7 @@ Trên Windows, thay `.venv/bin/python` bằng `.\.venv\Scripts\python.exe`. CLI 
 - Gói build có thể lớn vì chứa PyTorch, ONNX Runtime và model VietOCR. Công cụ Codex/Claude CLI, nếu dùng, cần cài riêng.
 
 Tên file, hàm và biến trong source dùng tiếng Anh; chữ hiển thị cho người dùng dùng tiếng Việt.
+
+## Giấy phép
+
+Phần mã nguồn do dự án phát triển được phát hành theo [MIT License](LICENSE). Repo hiện cung cấp source và hướng dẫn để người dùng tự build; chưa phát hành gói ứng dụng tải sẵn. PySide6, Ghostscript, VietOCR và các thành phần bên thứ ba giữ giấy phép riêng của chúng. Nếu phân phối lại ứng dụng đã đóng gói, cần kiểm tra và tuân thủ giấy phép của những thành phần được đưa vào gói.

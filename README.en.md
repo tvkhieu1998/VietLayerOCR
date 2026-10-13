@@ -62,3 +62,7 @@ On Windows, replace `.venv/bin/python` with `.\.venv\Scripts\python.exe`. CLI op
 - Builds can be large because they include PyTorch, ONNX Runtime, and the VietOCR checkpoint. Codex/Claude CLI tools, when used, must be installed separately.
 
 Source file names, functions, and variables use English. The app's user-facing copy is Vietnamese.
+
+## License
+
+The project's own source code is released under the [MIT License](LICENSE). This repository currently provides source code and self-build instructions; it does not publish a prebuilt app. PySide6, Ghostscript, VietOCR, and other third-party components retain their own licenses. Anyone redistributing a packaged app must review and comply with the licenses of the components included in that package.
